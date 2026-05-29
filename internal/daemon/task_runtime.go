@@ -15,6 +15,7 @@ import (
 	"github.com/compozy/agh/internal/session"
 	"github.com/compozy/agh/internal/store"
 	taskpkg "github.com/compozy/agh/internal/task"
+	aghworkspace "github.com/compozy/agh/internal/workspace"
 )
 
 const (
@@ -33,6 +34,10 @@ const (
 
 type taskStore interface {
 	taskpkg.Store
+}
+
+type taskWorkspaceGetter interface {
+	GetWorkspace(ctx context.Context, id string) (aghworkspace.Workspace, error)
 }
 
 type taskRuntime struct {
@@ -140,6 +145,7 @@ func (b *taskSessionBridge) StartTaskSession(
 	}
 	applyTaskSessionWorkerProfile(&opts, spec.ExecutionProfile)
 	applyTaskSessionSandboxProfile(&opts, spec.ExecutionProfile)
+	applyTaskSessionRuntimeProfile(&opts, spec.ExecutionProfile)
 	switch spec.Task.Scope.Normalize() {
 	case taskpkg.ScopeWorkspace:
 		opts.Workspace = strings.TrimSpace(spec.Task.WorkspaceID)
@@ -216,6 +222,20 @@ func applyTaskSessionSandboxProfile(opts *session.CreateOpts, profile *taskpkg.E
 	default:
 		return
 	}
+}
+
+func applyTaskSessionRuntimeProfile(opts *session.CreateOpts, profile *taskpkg.ExecutionProfile) {
+	if opts == nil || profile == nil {
+		return
+	}
+	if profile.Runtime.Mode.Normalize() != taskpkg.RuntimeModeEvidence {
+		return
+	}
+	opts.Permissions = aghconfig.PermissionModeApproveAll
+	opts.PromptOverlay = joinPromptOverlays(
+		opts.PromptOverlay,
+		"Runtime evidence mode is enabled for this task. You may install dependencies, boot local app runtimes, run browser or simulator validation, and capture runtime evidence artifacts required by the task.",
+	)
 }
 
 func (b *taskSessionBridge) AttachTaskSession(
@@ -489,6 +509,21 @@ func taskManagerOptions(
 			AllowAgentForce: recovery.AllowAgentForce,
 		}),
 		taskpkg.WithStarvationAge(scheduler.MinQueuedAge),
+	}
+	if workspaceStore, ok := store.(taskWorkspaceGetter); ok {
+		options = append(options, taskpkg.WithCompletionContractRootResolver(
+			func(ctx context.Context, taskRecord taskpkg.Task, _ taskpkg.Run) (string, error) {
+				workspaceID := strings.TrimSpace(taskRecord.WorkspaceID)
+				if workspaceID == "" {
+					return "", fmt.Errorf("workspace_id is required")
+				}
+				workspaceRecord, err := workspaceStore.GetWorkspace(ctx, workspaceID)
+				if err != nil {
+					return "", err
+				}
+				return workspaceRecord.RootDir, nil
+			},
+		))
 	}
 	if hooks != nil {
 		options = append(options, taskpkg.WithTaskRunHooks(hooks))

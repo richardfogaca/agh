@@ -68,7 +68,26 @@ func migrateTaskOrchestrationProfileSchema(ctx context.Context, tx *sql.Tx) erro
 			return fmt.Errorf("store: apply task orchestration profile schema: %w", err)
 		}
 	}
+	if err := addMissingMigrationColumns(ctx, tx, "task_execution_profiles", []migrationColumnSpec{
+		{
+			name: "runtime_mode",
+			sql: `ALTER TABLE task_execution_profiles ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'default' ` +
+				`CHECK (runtime_mode IN ('default', 'evidence'))`,
+		},
+	}); err != nil {
+		return err
+	}
 	return nil
+}
+
+func migrateTaskExecutionProfileRuntimeMode(ctx context.Context, tx *sql.Tx) error {
+	return addMissingMigrationColumns(ctx, tx, "task_execution_profiles", []migrationColumnSpec{
+		{
+			name: "runtime_mode",
+			sql: `ALTER TABLE task_execution_profiles ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'default' ` +
+				`CHECK (runtime_mode IN ('default', 'evidence'))`,
+		},
+	})
 }
 
 func addMissingMigrationColumns(

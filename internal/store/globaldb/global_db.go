@@ -1066,6 +1066,12 @@ var globalSchemaMigrations = []store.Migration{
 		Up:       migrateTaskRunStarvation,
 		Checksum: "2026-05-28-add-task-run-starvation-tracking",
 	},
+	{
+		Version:  41,
+		Name:     "add_task_execution_profile_runtime_mode",
+		Up:       migrateTaskExecutionProfileRuntimeMode,
+		Checksum: "2026-05-29-add-task-execution-profile-runtime-mode",
+	},
 }
 
 func migrateSessionInputQueue(ctx context.Context, tx *sql.Tx) error {

@@ -57,6 +57,7 @@ var (
 		toolspkg.ToolIDTaskRunComplete.String(),
 		toolspkg.ToolIDTaskRunFail.String(),
 		toolspkg.ToolIDTaskRunRelease.String(),
+		toolspkg.ToolIDTaskRunBlock.String(),
 		toolspkg.ToolIDTaskCreate.String(),
 	}
 )

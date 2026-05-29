@@ -967,6 +967,30 @@ func (s *inMemoryManagerStore) ReleaseRunLease(_ context.Context, release LeaseR
 	return cloneTaskRun(run), nil
 }
 
+func (s *inMemoryManagerStore) BlockRunLease(_ context.Context, block LeaseBlock) (Run, error) {
+	normalized, err := block.Normalize(time.Now().UTC())
+	if err != nil {
+		return Run{}, err
+	}
+	run, err := s.requireCurrentTestLease(normalized.RunID, normalized.ClaimToken, normalized.Now)
+	if err != nil {
+		return Run{}, err
+	}
+	run.Status = TaskRunStatusNeedsAttention
+	run.ClaimedBy = nil
+	run.SessionID = ""
+	run.ClaimToken = ""
+	run.ClaimTokenHash = ""
+	run.LeaseUntil = time.Time{}
+	run.HeartbeatAt = time.Time{}
+	run.ClaimedAt = time.Time{}
+	run.EndedAt = time.Time{}
+	run.Error = strings.TrimSpace(normalized.Reason)
+	run.Result = nil
+	s.runs[run.ID] = cloneTaskRun(run)
+	return cloneTaskRun(run), nil
+}
+
 func (s *inMemoryManagerStore) CompleteRunLease(_ context.Context, completion LeaseCompletion) (Run, error) {
 	normalized, err := completion.Normalize(time.Now().UTC())
 	if err != nil {

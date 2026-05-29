@@ -589,6 +589,11 @@ func expectedGlobalMigrationPrefix() []expectedGlobalMigrationIdentity {
 			name:     "add_task_run_starvation_tracking",
 			checksum: "2026-05-28-add-task-run-starvation-tracking",
 		},
+		{
+			version:  41,
+			name:     "add_task_execution_profile_runtime_mode",
+			checksum: "2026-05-29-add-task-execution-profile-runtime-mode",
+		},
 	}
 }
 

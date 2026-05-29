@@ -70,6 +70,10 @@ const (
 // Option customizes Service construction.
 type Option func(*managerOptions)
 
+// CompletionContractRootResolver resolves the filesystem root used for relative
+// completion-contract artifact paths.
+type CompletionContractRootResolver func(ctx context.Context, task Task, run Run) (string, error)
+
 type managerOptions struct {
 	store             Store
 	sessions          SessionExecutor
@@ -81,6 +85,7 @@ type managerOptions struct {
 	channelValidator  func(string) error
 	profileValidation ExecutionProfileValidationOptions
 	forceRecovery     ForceRecoveryOptions
+	contractRoot      CompletionContractRootResolver
 	now               func() time.Time
 	newID             func(prefix string) string
 	cancelGracePeriod time.Duration
@@ -100,6 +105,7 @@ type Service struct {
 	channelValidator  func(string) error
 	profileValidation ExecutionProfileValidationOptions
 	forceRecovery     ForceRecoveryOptions
+	contractRoot      CompletionContractRootResolver
 	now               func() time.Time
 	newID             func(prefix string) string
 	cancelGracePeriod time.Duration
@@ -186,6 +192,14 @@ func WithForceRecoveryOptions(options ForceRecoveryOptions) Option {
 	}
 }
 
+// WithCompletionContractRootResolver injects workspace-root resolution for
+// relative completion-contract artifact paths.
+func WithCompletionContractRootResolver(resolver CompletionContractRootResolver) Option {
+	return func(opts *managerOptions) {
+		opts.contractRoot = resolver
+	}
+}
+
 // WithManagerNow overrides the manager clock for deterministic tests.
 func WithManagerNow(now func() time.Time) Option {
 	return func(opts *managerOptions) {
@@ -254,6 +268,7 @@ func NewManager(opts ...Option) (*Service, error) {
 		channelValidator:  options.channelValidator,
 		profileValidation: options.profileValidation,
 		forceRecovery:     normalizeForceRecoveryOptions(options.forceRecovery),
+		contractRoot:      options.contractRoot,
 		now:               options.now,
 		newID:             options.newID,
 		cancelGracePeriod: options.cancelGracePeriod,
@@ -1979,6 +1994,9 @@ func (m *Service) CompleteRun(
 	if err := requireRunTransition(run, TaskRunStatusCompleted); err != nil {
 		return nil, err
 	}
+	if err := m.validateCompletionContract(ctx, taskRecord, run); err != nil {
+		return nil, err
+	}
 
 	run.Status = TaskRunStatusCompleted
 	run.Result = cloneRawJSON(normalizedResult.Value)
@@ -2835,6 +2853,7 @@ func taskStatusFromPolicySnapshot(
 
 	runnableBlocked := unresolvedDependencies || approvalBlocked
 	hasQueuedOrClaimed := false
+	hasNeedsAttention := false
 	var latestTerminal Run
 	hasLatestTerminal := false
 	for idx := range runs {
@@ -2844,6 +2863,8 @@ func taskStatusFromPolicySnapshot(
 			return TaskStatusInProgress
 		case TaskRunStatusQueued, TaskRunStatusClaimed:
 			hasQueuedOrClaimed = true
+		case TaskRunStatusNeedsAttention:
+			hasNeedsAttention = true
 		case TaskRunStatusCompleted, TaskRunStatusFailed, TaskRunStatusCanceled:
 			if !hasLatestTerminal || runComesAfter(run, latestTerminal) {
 				latestTerminal = run
@@ -2857,6 +2878,9 @@ func taskStatusFromPolicySnapshot(
 			return TaskStatusBlocked
 		}
 		return TaskStatusReady
+	}
+	if hasNeedsAttention {
+		return TaskStatusBlocked
 	}
 
 	if hasLatestTerminal {

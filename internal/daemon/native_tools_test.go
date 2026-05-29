@@ -2123,6 +2123,11 @@ func TestDaemonNativeTools(t *testing.T) {
 				toolID: toolspkg.ToolIDTaskRunRelease,
 				input:  json.RawMessage(`{"run_id":"run-1","reason":"handoff"}`),
 			},
+			{
+				name:   "Should block with internal lease token",
+				toolID: toolspkg.ToolIDTaskRunBlock,
+				input:  json.RawMessage(`{"run_id":"run-1","reason":"blocked_on_human"}`),
+			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				result, err := registry.Call(
@@ -2139,12 +2144,14 @@ func TestDaemonNativeTools(t *testing.T) {
 		}
 		if tasks.lastCompletion.ClaimToken != rawToken ||
 			tasks.lastFailure.ClaimToken != rawToken ||
-			tasks.lastRelease.ClaimToken != rawToken {
+			tasks.lastRelease.ClaimToken != rawToken ||
+			tasks.lastBlock.ClaimToken != rawToken {
 			t.Fatalf(
-				"terminal/release tokens = %q/%q/%q, want internal token",
+				"terminal/release/block tokens = %q/%q/%q/%q, want internal token",
 				tasks.lastCompletion.ClaimToken,
 				tasks.lastFailure.ClaimToken,
 				tasks.lastRelease.ClaimToken,
+				tasks.lastBlock.ClaimToken,
 			)
 		}
 	})
@@ -6406,6 +6413,9 @@ type nativeTaskManager struct {
 	releaseCalls            int
 	lastRelease             taskpkg.LeaseRelease
 	releaseErr              error
+	blockCalls              int
+	lastBlock               taskpkg.LeaseBlock
+	blockErr                error
 	lookupReviewCalls       int
 	lastReviewSessionID     string
 	reviewBinding           taskpkg.RunReviewBinding
@@ -6654,6 +6664,20 @@ func (m *nativeTaskManager) ReleaseRunLease(
 		return nil, m.releaseErr
 	}
 	run := nativeLeaseRun(release.RunID, taskpkg.TaskRunStatusQueued, m.lookupHandle)
+	return &run, nil
+}
+
+func (m *nativeTaskManager) BlockRunLease(
+	_ context.Context,
+	block taskpkg.LeaseBlock,
+	_ taskpkg.ActorContext,
+) (*taskpkg.Run, error) {
+	m.blockCalls++
+	m.lastBlock = block
+	if m.blockErr != nil {
+		return nil, m.blockErr
+	}
+	run := nativeLeaseRun(block.RunID, taskpkg.TaskRunStatusNeedsAttention, m.lookupHandle)
 	return &run, nil
 }
 
@@ -7083,6 +7107,14 @@ func (unsupportedNativeTaskManager) HeartbeatRunLease(
 func (unsupportedNativeTaskManager) ReleaseRunLease(
 	context.Context,
 	taskpkg.LeaseRelease,
+	taskpkg.ActorContext,
+) (*taskpkg.Run, error) {
+	return nil, errUnexpectedNativeTaskCall
+}
+
+func (unsupportedNativeTaskManager) BlockRunLease(
+	context.Context,
+	taskpkg.LeaseBlock,
 	taskpkg.ActorContext,
 ) (*taskpkg.Run, error) {
 	return nil, errUnexpectedNativeTaskCall
